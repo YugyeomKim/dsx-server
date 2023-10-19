@@ -25,7 +25,7 @@ app.use(cors())
 app.use(express.json({ limit: '10gb' }))
 
 app.use('/predict', async (req, res) => {
-  const startTime = Date.now()
+  let startTime = Date.now()
 
   /** @type {string[]} */
   const data = req.body
@@ -57,31 +57,39 @@ app.use('/predict', async (req, res) => {
   )
 
   console.log(`Write image in ${Date.now() - startTime}ms`)
+  startTime = Date.now()
 
-  const python = spawn('python3', [
-    'model/run-model.py',
-    JSON.stringify(imagePathList),
-  ])
+  try {
+    const modelResponse = await fetch('http://localhost:3001', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(imagePathList),
+    })
 
-  python.stdout.on(
-    'data',
-    /** @param {number} data */ (data) => {
-      console.log(`Got data from Python script in ${Date.now() - startTime}ms`)
-
-      // Get data from Python script
-      const prediction = JSON.parse(data.toString())
-
-      // Delete image
-      imagePathList.forEach((imagePath) => {
-        fs.unlink(imagePath, (err) => {
-          if (err) console.log(`${imagePath} not found!`)
-        })
-      })
-
-      // Send prediction back to client
-      res.send(prediction)
+    if (!modelResponse.ok) {
+      res.status(500).send('Error on model response')
     }
-  )
+
+    console.log(`Got data from Python script in ${Date.now() - startTime}ms`)
+
+    // Get data from Python script
+    const prediction = await modelResponse.json()
+
+    // Delete image
+    imagePathList.forEach((imagePath) => {
+      fs.unlink(imagePath, (err) => {
+        if (err) console.log(`${imagePath} not found!`)
+      })
+    })
+
+    // Send prediction back to client
+    res.send(prediction)
+  } catch (err) {
+    console.log(err)
+    res.status(500).send('Error on model')
+  }
 })
 
 app.use('/survey', async (req, res) => {
