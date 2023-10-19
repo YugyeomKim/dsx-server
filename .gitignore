@@ -3,3 +3,4 @@ buffer/
 .env
 .vscode/
 model/alexnet_v1.pt
+.DS_Store
