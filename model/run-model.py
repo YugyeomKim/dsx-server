@@ -1,24 +1,31 @@
 import torch
 import sys
 import os
+import json
 from PIL import Image
 from torchvision import transforms
 
 dirname = os.path.dirname(__file__)
 model = torch.jit.load(os.path.join(dirname, "alexnet_v1.pt"))
-
 model.eval()
-with torch.no_grad():
-    image = Image.open(sys.argv[1])
 
+imagePathList = json.loads(sys.argv[1])
+images = []
+for imagePath in imagePathList:
+    image = Image.open(imagePath)
+    images.append(image)
+
+
+with torch.no_grad():
     img_transforms = transforms.Compose([
         transforms.ToTensor(),
         transforms.Resize((227, 227), antialias=False),
     ])
 
-    img_input = img_transforms(image)
-    img_input = img_input.unsqueeze(0)
+    batch = torch.stack([img_transforms(image) for image in images])
 
-    pred = model(img_input)
+    pred = model(batch)
 
-print(pred.argmax().item())
+    result = pred.argmax(dim=1).tolist()
+
+print(result)

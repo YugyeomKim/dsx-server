@@ -24,51 +24,64 @@ try {
 app.use(cors())
 app.use(express.json())
 
-app.use('/predict', (req, res) => {
+app.use('/predict', async (req, res) => {
   const startTime = Date.now()
 
-  /** @type {Uint8Array[]} */
-  const data = []
+  /** @type {string[]} */
+  const data = req.body
 
-  req.on('data', (chunk) => {
-    data.push(chunk)
-  })
+  if (!data) {
+    res.status(400).send('No image data found')
+    return
+  }
 
-  req.on('end', () => {
-    if (!data) {
-      res.status(400).send('No image data found')
-      return
-    }
-    console.log(`Received image in ${Date.now() - startTime}ms`)
-    const buffer = Buffer.concat(data)
+  console.log(`Received image in ${Date.now() - startTime}ms`)
 
-    const imageName =
-      Date.now() + '-' + Math.round(Math.random() * 1e9) + '.jpg'
-    const imagePath = path.join(BUFFER_PATH, imageName)
-    fs.writeFileSync(imagePath, buffer)
-    console.log(`Wrote image in ${Date.now() - startTime}ms`)
+  const imageNamePrefix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+  /** @type {string[]} imageList of saved images with no error when writing */
+  const imagePathList = await Promise.all(
+    data.map((base64, idx) => {
+      const imageName = `${imageNamePrefix}-${idx}.jpg`
+      const imagePath = path.join(BUFFER_PATH, imageName)
+      const img = Buffer.from(base64, 'base64')
+      return new Promise((resolve, reject) => {
+        fs.writeFile(imagePath, img, (err) => {
+          if (err) {
+            console.log(err)
+          } else {
+            resolve(imagePath)
+          }
+        })
+      })
+    })
+  )
 
-    const python = spawn('python3', ['model/run-model.py', imagePath])
+  console.log(`Write image in ${Date.now() - startTime}ms`)
 
-    python.stdout.on(
-      'data',
-      /** @param {number} data */ (data) => {
-        console.log(
-          `Got data from Python script in ${Date.now() - startTime}ms`
-        )
-        // Get data from Python script
-        const prediction = data
+  const python = spawn('python3', [
+    'model/run-model.py',
+    JSON.stringify(imagePathList),
+  ])
 
-        // Delete image
+  python.stdout.on(
+    'data',
+    /** @param {number} data */ (data) => {
+      console.log(`Got data from Python script in ${Date.now() - startTime}ms`)
+
+      // Get data from Python script
+      const prediction = JSON.parse(data.toString())
+
+      // Delete image
+      imagePathList.forEach((imagePath) => {
         fs.unlink(imagePath, (err) => {
           if (err) console.log(`${imagePath} not found!`)
         })
+      })
 
-        // Send prediction back to client
-        res.send(prediction)
-      }
-    )
-  })
+      // Send prediction back to client
+      res.send(prediction)
+    }
+  )
 })
 
 app.use('/survey', async (req, res) => {
